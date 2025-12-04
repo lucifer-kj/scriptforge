@@ -1,8 +1,8 @@
 import { v4 as uuidv4 } from 'uuid';
 import { SubmitJobPayload, SubmitJobResponse, JobStatusResponse, Script } from './types';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL;
-const HELP_WEBHOOK_URL = process.env.NEXT_PUBLIC_HELP_WEBHOOK_URL;
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
+const HELP_WEBHOOK_URL = import.meta.env.VITE_HELP_WEBHOOK_URL;
 
 // --- Client Token ---
 const CLIENT_TOKEN_KEY = 'scriptforge_client_token';

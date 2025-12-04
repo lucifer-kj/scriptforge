@@ -1,0 +1,45 @@
+{
+  "name": "scriptforge",
+  "version": "1.0.0",
+  "description": "An AI-powered script generation system that takes a YouTube URL, Website URL, or RSS Feed and produces a YouTube-ready script.",
+  "homepage": "https://github.com/lucifer-kj/scriptforge#readme",
+  "bugs": {
+    "url": "https://github.com/lucifer-kj/scriptforge/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lucifer-kj/scriptforge.git"
+  },
+  "license": "ISC",
+  "author": "lucifer-kj",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "lint": "eslint src --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
+    "format": "prettier --write \"**/*.{ts,tsx,json,css,md}\"",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "uuid": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/react": "^18.2.37",
+    "@types/react-dom": "^18.2.15",
+    "@typescript-eslint/eslint-plugin": "^6.13.1",
+    "@typescript-eslint/parser": "^6.13.1",
+    "@vitejs/plugin-react": "^4.2.0",
+    "eslint": "^8.54.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-react": "^7.33.2",
+    "eslint-plugin-react-hooks": "^4.6.0",
+    "prettier": "^3.1.0",
+    "tailwindcss": "^3.3.6",
+    "typescript": "^5.3.2",
+    "vite": "^5.0.7"
+  }
+}
