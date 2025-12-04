@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { AppView, Submission, Notification as NotificationType, Page } from './types';
 import { SplashScreen, DesktopHeader, MobileBottomNav, HomePage, HistoryPage, AboutPage, HelpPage, ScriptViewerScreen, NotificationHandler, Footer } from './components';
 

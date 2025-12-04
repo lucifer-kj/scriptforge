@@ -22,6 +22,7 @@
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true
   },
-  "include": ["*.ts", "*.tsx"],
+  "include": ["*.ts", "*.tsx", "*.d.ts"],
+  "exclude": ["vite.config.ts", "vite.config.d.ts", "node_modules", "dist"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

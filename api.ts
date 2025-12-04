@@ -8,12 +8,11 @@ const HELP_WEBHOOK_URL = import.meta.env.VITE_HELP_WEBHOOK_URL;
 const CLIENT_TOKEN_KEY = 'scriptforge_client_token';
 
 export function getClientToken(): string {
-    let token = localStorage.getItem(CLIENT_TOKEN_KEY);
-    if (!token) {
-        token = uuidv4();
-        localStorage.setItem(CLIENT_TOKEN_KEY, token);
-    }
-    return token;
+    const existing = localStorage.getItem(CLIENT_TOKEN_KEY);
+    if (existing) return existing;
+    const newToken = uuidv4();
+    localStorage.setItem(CLIENT_TOKEN_KEY, newToken);
+    return newToken;
 }
 
 // --- API Calls ---
