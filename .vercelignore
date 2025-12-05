@@ -1,0 +1,13 @@
+# Vercel build ignores
+# Don't ignore the api directory - it contains serverless functions
+
+node_modules
+.env
+.env.local
+.git
+.gitignore
+dist
+.vscode
+.DS_Store
+*.md
+!PROXY_SETUP.md

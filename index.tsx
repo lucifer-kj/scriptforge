@@ -1,6 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
+import './src/index.css';
 
 const container = document.getElementById('root');
 if (container) {
@@ -12,8 +13,8 @@ if (container) {
     );
 }
 
-// Register Service Worker for PWA support
-if ('serviceWorker' in navigator) {
+// Register Service Worker for PWA support only in production
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
     window.addEventListener('load', () => {
         navigator.serviceWorker.register('/service-worker.js')
             .then(registration => console.log('Service Worker registered:', registration))

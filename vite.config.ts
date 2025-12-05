@@ -13,5 +13,14 @@ export default defineConfig({
   server: {
     port: 3000,
     open: true,
+    proxy: {
+      // Proxy /webhook requests to the n8n backend during development to avoid CORS
+      '/webhook': {
+        target: 'https://n8n.alphabusinessdesigns.co.uk',
+        changeOrigin: true,
+        secure: true,
+      }
+    }
   },
+  publicDir: 'public',
 })

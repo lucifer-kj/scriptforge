@@ -1,8 +1,26 @@
 import { v4 as uuidv4 } from 'uuid';
 import { SubmitJobPayload, SubmitJobResponse, JobStatusResponse, Script } from './types';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
-const HELP_WEBHOOK_URL = import.meta.env.VITE_HELP_WEBHOOK_URL;
+const rawApiBase = import.meta.env.VITE_API_BASE_URL || '';
+const rawHelpWebhook = import.meta.env.VITE_HELP_WEBHOOK_URL || '';
+
+// In development we proxy '/webhook' to the real n8n host via Vite server proxy.
+// To support that without changing the .env, when running in DEV extract the
+// pathname from the configured URL so the frontend calls a relative path
+// (e.g. '/webhook/script-forge') which Vite will proxy.
+function toDevPath(raw: string) {
+    try {
+        const u = new URL(raw);
+        return u.pathname.replace(/\/$/, '');
+    } catch (e) {
+        return raw.replace(/\/$/, '');
+    }
+}
+
+// In production, use Vercel serverless functions (/api/submit, /api/help) to avoid CORS.
+// In development, use the Vite proxy for the relative webhook paths.
+const API_BASE_URL = import.meta.env.DEV ? toDevPath(rawApiBase) : '/api';
+const HELP_WEBHOOK_URL = import.meta.env.DEV ? toDevPath(rawHelpWebhook) : '/api/help';
 
 // --- Client Token ---
 const CLIENT_TOKEN_KEY = 'scriptforge_client_token';
@@ -33,7 +51,10 @@ export async function submitJob(payload: Omit<SubmitJobPayload, 'client_token'>)
         throw new Error("API URL is not configured. Please check your environment variables.");
     }
     const client_token = getClientToken();
-    const response = await fetch(`${API_BASE_URL}/submit`, {
+    // In production: POST to /api/submit (serverless proxy)
+    // In development: POST to /webhook/script-forge/submit (Vite proxy)
+    const endpoint = import.meta.env.DEV ? `${API_BASE_URL}/submit` : `${API_BASE_URL}/submit`;
+    const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...payload, client_token }),
