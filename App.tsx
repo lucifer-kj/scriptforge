@@ -57,15 +57,15 @@ const App = () => {
         setView('page');
     };
 
+    const removeNotification = useCallback((id: number) => {
+        setNotifications(prev => prev.filter(n => n.id !== id));
+    }, []);
+
     const addNotification = useCallback((message: string, type: 'success' | 'error' | 'info' = 'info') => {
         const newNotification = { id: Date.now(), message, type };
         setNotifications(prev => [newNotification, ...prev.filter(n => n.message !== message)]);
         setTimeout(() => removeNotification(newNotification.id), 3500);
-    }, []);
-
-    const removeNotification = useCallback((id: number) => {
-        setNotifications(prev => prev.filter(n => n.id !== id));
-    }, []);
+    }, [removeNotification]);
 
     const renderPage = () => {
         switch (page) {

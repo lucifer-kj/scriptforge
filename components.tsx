@@ -79,7 +79,7 @@ const EmailModal = ({ show, onClose, onSend }: { show: boolean, onClose: () => v
         <div className="fixed inset-0 bg-black/50 backdrop-blur-[6px] flex items-center justify-center z-50 p-4" aria-modal="true" role="dialog">
             <div className="bg-[var(--card)] rounded-[var(--radius-md)] p-[var(--space-5)] w-full max-w-md shadow-[var(--shadow-lg)] border border-[var(--muted)]">
                 <h2 className="text-xl font-bold mb-2 text-[var(--text-100)]">Email Script</h2>
-                <p className="text-[var(--text-60)] mb-6">Enter the recipient's email address.</p>
+                <p className="text-[var(--text-60)] mb-6">Enter the recipient&apos;s email address.</p>
                 <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="recipient@example.com" aria-label="Recipient's email" className="mb-6" />
                 <div className="flex justify-end space-x-4">
                     <ButtonSecondary onClick={onClose} className="py-2.5">Cancel</ButtonSecondary>
@@ -224,11 +224,11 @@ const HistoryItem = ({ submission, onUpdate, onSelect }: { submission: Submissio
                 if (data.status !== submission.status || data.script_id !== submission.script_id) {
                     onUpdate({ ...submission, status: data.status, script_id: data.script_id });
                 }
-            } catch (error) { console.error(`Failed to poll status for job ${submission.id}:`, error); onUpdate({ ...submission, status: 'failed' }); }
+            } catch (error) { onUpdate({ ...submission, status: 'failed' }); }
         };
         if (submission.status === 'queued' || submission.status === 'processing') { intervalId = window.setInterval(pollStatus, 3000); }
         return () => { if (intervalId) clearInterval(intervalId); };
-    }, [submission.id, submission.status, onUpdate]);
+    }, [submission, onUpdate]);
 
     const canView = submission.status === 'done' && submission.script_id;
     const commonProps = { onClick: () => canView && onSelect(submission.script_id!), 'aria-label': `Submission for ${submission.source_url}, status ${submission.status}` };
@@ -358,7 +358,7 @@ export const ScriptViewerScreen = ({ scriptId, onBack, addNotification }: { scri
         copyAll(fullScriptText);
         addNotification('Copied all script content!', 'success');
     };
-    const handleSendEmail = (email: string) => { console.log(`Placeholder: Sending script to ${email}...`); addNotification(`Script sent to ${email}`, 'success'); setIsEmailModalOpen(false); };
+    const handleSendEmail = (email: string) => { addNotification(`Script sent to ${email}`, 'success'); setIsEmailModalOpen(false); };
     const SectionCard = ({ title, children, action }: { title: string, children: React.ReactNode, action?: React.ReactNode }) => (
         <div className="bg-[var(--card)] p-[var(--space-5)] rounded-[var(--radius-md)] border border-[var(--muted)]"><div className="flex justify-between items-center mb-3"><h3 className="text-xl font-bold text-[var(--text-100)]">{title}</h3>{action}</div>{children}</div>
     );
@@ -371,7 +371,7 @@ export const ScriptViewerScreen = ({ scriptId, onBack, addNotification }: { scri
         <div className="max-w-3xl mx-auto p-4 md:p-8">
             <ButtonSecondary onClick={onBack} className="mb-8 !py-2">&larr; Back to History</ButtonSecondary>
             <div className="space-y-8">
-                <SectionCard title="Title Suggestions"><ul className="space-y-2">{script.title_suggestions.map((title, index) => (<li key={index} className="flex items-center justify-between p-3 bg-[var(--surface)] rounded-[var(--radius-sm)]"><span className="text-[var(--text-80)]">"{title}"</span><CopyButton textToCopy={title} /></li>))}</ul></SectionCard>
+                <SectionCard title="Title Suggestions"><ul className="space-y-2">{script.title_suggestions.map((title, index) => (<li key={index} className="flex items-center justify-between p-3 bg-[var(--surface)] rounded-[var(--radius-sm)]"><span className="text-[var(--text-80)]">&quot;{title}&quot;</span><CopyButton textToCopy={title} /></li>))}</ul></SectionCard>
                 <SectionCard title="Description" action={<CopyButton textToCopy={script.description} />}><p className="text-[var(--text-80)] whitespace-pre-wrap">{script.description}</p></SectionCard>
                 <SectionCard title="Tags" action={<CopyButton textToCopy={script.tags.join(', ')} />}><p className="text-[var(--text-80)]">{script.tags.join(', ')}</p></SectionCard>
                 <div><h3 className="text-xl font-bold mb-3 text-[var(--text-100)]">Scenes</h3><div className="space-y-4">{script.scenes.sort((a, b) => a.scene - b.scene).map(scene => (<Scene key={scene.scene} scene={scene} />))}</div></div>
