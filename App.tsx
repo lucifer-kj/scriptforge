@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppView, Submission, Notification as NotificationType, Page } from './types';
-import { SplashScreen, DesktopHeader, MobileBottomNav, HomePage, HistoryPage, AboutPage, HelpPage, ScriptViewerScreen, NotificationHandler, Footer } from './components';
+import { SplashScreen, DesktopHeader, MobileBottomNav, HomePage, HistoryPage, AboutPage, HelpPage, ScriptViewerScreen, NotificationHandler, Footer, ResultsPage } from './components';
 
 const SUBMISSIONS_KEY = 'scriptforge_submissions';
 
@@ -9,6 +9,7 @@ const App = () => {
     const [view, setView] = useState<AppView>('page');
     const [page, setPage] = useState<Page>('home');
     const [selectedScriptId, setSelectedScriptId] = useState<string | null>(null);
+    const [resultsJobId, setResultsJobId] = useState<string | null>(null);
     const [submissions, setSubmissions] = useState<Submission[]>([]);
     const [notifications, setNotifications] = useState<NotificationType[]>([]);
 
@@ -43,6 +44,17 @@ const App = () => {
         setPage('history');
     }, []);
 
+    // Navigate to results page for a job id (updates history)
+    const navigateToResults = useCallback((jobId: string) => {
+        try {
+            window.history.pushState({}, '', `/results/${jobId}`);
+        } catch (e) {
+            // ignore
+        }
+        setResultsJobId(jobId);
+        setPage('results');
+    }, []);
+
     const updateSubmission = useCallback((updatedSubmission: Submission) => {
         setSubmissions(prev => prev.map(s => s.id === updatedSubmission.id ? updatedSubmission : s));
     }, []);
@@ -70,9 +82,11 @@ const App = () => {
     const renderPage = () => {
         switch (page) {
             case 'home':
-                return <HomePage addSubmission={addSubmission} addNotification={addNotification} />;
+                return <HomePage addSubmission={addSubmission} addNotification={addNotification} navigateToResults={navigateToResults} />;
             case 'history':
                 return <HistoryPage submissions={submissions} updateSubmission={updateSubmission} onSelectScript={handleSelectScript} />;
+            case 'results':
+                return resultsJobId ? <ResultsPage jobId={resultsJobId} /> : <HomePage addSubmission={addSubmission} addNotification={addNotification} navigateToResults={navigateToResults} />;
             case 'about':
                 return <AboutPage />;
             case 'help':
@@ -81,6 +95,31 @@ const App = () => {
                 return <HomePage addSubmission={addSubmission} addNotification={addNotification} />;
         }
     };
+
+    // Initialize from URL (support direct /results/:jobId links)
+    useEffect(() => {
+        const path = window.location.pathname || '/';
+        const m = path.match(/^\/results\/(.+)$/);
+        if (m) {
+            setResultsJobId(m[1]);
+            setPage('results');
+        }
+
+        const onPop = () => {
+            const p = window.location.pathname || '/';
+            const mm = p.match(/^\/results\/(.+)$/);
+            if (mm) {
+                setResultsJobId(mm[1]);
+                setPage('results');
+            } else {
+                // default to home when not results
+                setPage('home');
+                setResultsJobId(null);
+            }
+        };
+        window.addEventListener('popstate', onPop);
+        return () => window.removeEventListener('popstate', onPop);
+    }, []);
 
     return (
         <>

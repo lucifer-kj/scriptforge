@@ -89,6 +89,62 @@ const EmailModal = ({ show, onClose, onSend }: { show: boolean, onClose: () => v
         </div>
     );
 };
+
+// --- Results Page ---
+export const ResultsPage = ({ jobId }: { jobId: string }) => {
+    const [status, setStatus] = useState<string>('queued');
+    const [script, setScript] = useState<Script | null>(null);
+    const [error, setError] = useState<string | null>(null);
+
+    useEffect(() => {
+        let mounted = true;
+        const poll = async () => {
+            try {
+                const res = await getJobStatus(jobId);
+                if (!mounted) return;
+                setStatus(res.status);
+                if (res.status === 'done' && res.script_id) {
+                    const s = await getScript(res.script_id);
+                    if (!mounted) return;
+                    setScript(s);
+                    if (interval) clearInterval(interval);
+                }
+            } catch (err) {
+                setError(err instanceof Error ? err.message : 'Failed to fetch status');
+            }
+        };
+
+        // initial poll then interval
+        poll();
+        const intervalId = window.setInterval(poll, 3000);
+
+        return () => { mounted = false; clearInterval(intervalId); };
+    }, [jobId]);
+
+    return (
+        <div className="p-4 md:p-8 max-w-4xl mx-auto">
+            <div className="bg-[var(--card)] p-[var(--space-5)] rounded-[var(--radius-md)] shadow-[var(--shadow-md)] border border-[var(--muted)]">
+                <h2 className="text-xl font-bold mb-2">Results for job {jobId}</h2>
+                <p className="text-[var(--text-60)] mb-4">Status: <strong className="capitalize">{status}</strong></p>
+                {error && <p className="text-[var(--danger)]">{error}</p>}
+                {script ? (
+                    <div>
+                        <h3 className="text-lg font-semibold">{script.title_suggestions[0]}</h3>
+                        <p className="text-[var(--text-80)] whitespace-pre-wrap my-4">{script.full_text || script.description}</p>
+                        <div className="space-y-4">{script.scenes.map(s => (
+                            <div key={s.scene} className="p-3 bg-[var(--surface)] rounded-[var(--radius-sm)]">
+                                <strong>Scene {s.scene}</strong>
+                                <p className="whitespace-pre-wrap mt-2">{s.text}</p>
+                            </div>
+                        ))}</div>
+                    </div>
+                ) : (
+                    <div className="text-[var(--text-60)]">{status === 'done' ? 'Fetching script...' : 'Processing... Please wait.'}</div>
+                )}
+            </div>
+        </div>
+    );
+};
 export const NotificationHandler = ({ notifications, onDismiss }: { notifications: NotificationType[], onDismiss: (id: number) => void }) => (
     <div className="fixed bottom-20 md:bottom-5 md:right-5 left-4 right-4 md:left-auto md:w-full md:max-w-sm z-50 space-y-2">
         {notifications.map(notification => {
@@ -169,7 +225,7 @@ export const MobileBottomNav = ({ activePage, setPage }: { activePage: Page, set
 // --- Page Components ---
 const FormLabel = ({ children, htmlFor }: { children: React.ReactNode, htmlFor?: string }) => <label htmlFor={htmlFor} className="block text-sm font-medium text-[var(--text-60)] mb-2">{children}</label>;
 
-export const HomePage = ({ addSubmission, addNotification }: { addSubmission: (s: Submission) => void, addNotification: (msg: string, type: 'success' | 'error') => void }) => {
+export const HomePage = ({ addSubmission, addNotification, navigateToResults }: { addSubmission: (s: Submission) => void, addNotification: (msg: string, type: 'success' | 'error') => void, navigateToResults?: (jobId: string) => void }) => {
     const [sourceUrl, setSourceUrl] = useState('');
     const [sourceType, setSourceType] = useState<SourceType>('auto');
     const [category, setCategory] = useState('');
@@ -190,6 +246,8 @@ export const HomePage = ({ addSubmission, addNotification }: { addSubmission: (s
             addSubmission({ id: response.job_id, created_at: new Date().toISOString(), status: response.status, source_url: sourceUrl, output_type: outputType, source_type: sourceType, category, requirements, tone });
             addNotification(`Job Created - Processing...`, 'success');
             setSourceUrl(''); setCategory(''); setRequirements('');
+            // Navigate to results page if navigation callback provided
+            if (navigateToResults) navigateToResults(response.job_id);
         } catch (error) { addNotification(error instanceof Error ? error.message : 'An unknown error occurred.', 'error');
         } finally { setIsSubmitting(false); }
     };

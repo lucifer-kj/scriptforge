@@ -56,7 +56,7 @@ export interface Submission {
 }
 
 export type AppView = 'scriptViewer' | 'page';
-export type Page = 'home' | 'history' | 'about' | 'help';
+export type Page = 'home' | 'history' | 'about' | 'help' | 'results';
 
 export interface Notification {
     id: number;
