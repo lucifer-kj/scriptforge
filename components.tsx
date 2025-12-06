@@ -32,7 +32,7 @@ const Select = (props: React.SelectHTMLAttributes<HTMLSelectElement>) => (
 const SegmentedControl = ({ options, value, onChange }: { options: { label: string, value: string }[], value: string, onChange: (value: string) => void }) => (
     <div className="inline-flex bg-[var(--card)] p-1 rounded-[var(--radius-md)] border border-[var(--muted)]">
         {options.map(opt => (
-            <button key={opt.value} onClick={() => onChange(opt.value)} className={`px-3 py-1.5 rounded-[var(--radius-sm)] text-sm font-medium transition-all duration-[var(--anim-medium)] ease-[var(--ease)] ${value === opt.value ? 'text-white scale-105 shadow-[var(--shadow-sm)]' : 'text-[var(--text-80)] hover:bg-[var(--glass)]'}`} style={{ background: value === opt.value ? 'linear-gradient(90deg, var(--primary-600), var(--primary-400))' : 'transparent' }}>{opt.label}</button>
+            <button type="button" key={opt.value} onClick={() => onChange(opt.value)} className={`px-3 py-1.5 rounded-[var(--radius-sm)] text-sm font-medium transition-all duration-[var(--anim-medium)] ease-[var(--ease)] ${value === opt.value ? 'text-white scale-105 shadow-[var(--shadow-sm)]' : 'text-[var(--text-80)] hover:bg-[var(--glass)]'}`} style={{ background: value === opt.value ? 'linear-gradient(90deg, var(--primary-600), var(--primary-400))' : 'transparent' }}>{opt.label}</button>
         ))}
     </div>
 );
