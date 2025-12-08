@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import { SubmitJobPayload, SubmitJobResponse, JobStatusResponse, Script } from './types';
+import { createClient } from '@supabase/supabase-js';
 
 const rawApiBase = import.meta.env.VITE_API_BASE_URL || '';
 const rawHelpWebhook = import.meta.env.VITE_HELP_WEBHOOK_URL || '';
@@ -65,8 +66,56 @@ export async function submitJob(payload: Omit<SubmitJobPayload, 'client_token'>)
 }
 
 export async function getJobStatus(jobId: string): Promise<JobStatusResponse> {
-    const response = await fetch(`${SERVER_API_BASE}/status/${jobId}`);
-    return handleResponse<JobStatusResponse>(response);
+    // First try the server-side status proxy which uses the service role key.
+    try {
+        const response = await fetch(`${SERVER_API_BASE}/status/${jobId}`);
+        if (response.ok) {
+            return handleResponse<JobStatusResponse>(response);
+        }
+
+        // If server returned 404 (not found), fall through to client-side Supabase fallback below
+        if (response.status !== 404) {
+            // For other HTTP errors, surface the error
+            return handleResponse<JobStatusResponse>(response);
+        }
+    } catch (err) {
+        // network error or server unavailable — attempt fallback
+        console.warn('Server status endpoint unavailable, attempting Supabase fallback', err);
+    }
+
+    // Fallback: if environment provides Supabase anon credentials, query the submissions table directly
+    const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || import.meta.env.VITE_SUPABASE_URL_ALT || '';
+    const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY_ALT || '';
+
+    if (SUPABASE_URL && SUPABASE_ANON_KEY) {
+        try {
+            const supabase = createClient(String(SUPABASE_URL), String(SUPABASE_ANON_KEY));
+            const { data, error } = await supabase
+                .from('submissions')
+                .select('id, status, script_id')
+                .eq('id', jobId)
+                .single();
+
+            if (error) {
+                // If row not found, throw a 404-like error to let callers handle polling
+                const msg = (error as any).message || 'Supabase query error';
+                throw new Error(msg);
+            }
+
+            if (!data) throw new Error('Job not found');
+
+            return {
+                job_id: data.id,
+                status: data.status,
+                script_id: data.script_id || null,
+            } as JobStatusResponse;
+        } catch (err) {
+            throw err instanceof Error ? err : new Error('Failed to fetch job status');
+        }
+    }
+
+    // If we reach here and couldn't fetch status, throw a generic error
+    throw new Error('Unable to determine job status (no server or Supabase fallback available)');
 }
 
 export async function getScript(scriptId: string): Promise<Script> {
