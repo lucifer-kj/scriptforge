@@ -25,32 +25,64 @@ export default async function handler(
     return;
   }
 
-  try {
-    // Forward the request to the n8n webhook
-    const n8nWebhookUrl = process.env.VITE_API_BASE_URL;
+  // Basic input validation
+  const body = req.body || {};
+  const { source_url, source_type, requirements } = body as Record<string, unknown>;
 
+  if (!source_url || !source_type || typeof requirements === 'undefined') {
+    res.status(400).json({ error: 'Missing required fields: source_url, source_type, requirements' });
+    return;
+  }
+
+  try {
+    const n8nWebhookUrl = process.env.VITE_API_BASE_URL;
     if (!n8nWebhookUrl) {
       res.status(500).json({ error: 'n8n webhook URL not configured' });
       return;
     }
 
-    const response = await fetch(n8nWebhookUrl, {
+    const upstreamResponse = await fetch(n8nWebhookUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        Accept: 'application/json, text/*',
       },
-      body: JSON.stringify(req.body),
+      body: JSON.stringify(body),
     });
 
-    const data = await response.json();
+    // If upstream returned non-OK status, still examine content-type
+    const contentType = upstreamResponse.headers.get('content-type') || '';
+    const isJson = contentType.toLowerCase().includes('application/json');
 
-    // Forward the n8n response back to the client
-    res.status(response.status).json(data);
-  } catch (error) {
-    console.error('Proxy error:', error);
-    res.status(500).json({
-      error: 'Failed to forward request to n8n',
-      details: error instanceof Error ? error.message : 'Unknown error',
+    if (!isJson) {
+      // read raw text for debugging, but do not forward HTML to client
+      const raw = await upstreamResponse.text().catch(() => '<unreadable response>');
+      console.error('Upstream non-JSON response:', {
+        url: n8nWebhookUrl,
+        status: upstreamResponse.status,
+        contentType,
+        bodyPreview: raw.slice ? raw.slice(0, 2000) : String(raw),
+      });
+
+      res.status(502).json({ error: 'Upstream service error', details: 'Non-JSON response received' });
+      return;
+    }
+
+    // Parse and forward JSON response
+    const data = await upstreamResponse.json().catch((err) => {
+      console.error('Failed to parse upstream JSON:', err);
+      return null;
     });
+
+    if (data === null) {
+      res.status(502).json({ error: 'Upstream service error', details: 'Invalid JSON received' });
+      return;
+    }
+
+    // Forward status and parsed body
+    res.status(upstreamResponse.status).json(data);
+  } catch (err) {
+    console.error('Proxy error:', err);
+    res.status(502).json({ error: 'Upstream service error', details: err instanceof Error ? err.message : 'Unknown error' });
   }
 }

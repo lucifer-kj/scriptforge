@@ -5,8 +5,7 @@ const rawApiBase = import.meta.env.VITE_API_BASE_URL || '';
 const rawHelpWebhook = import.meta.env.VITE_HELP_WEBHOOK_URL || '';
 
 // In development we proxy '/webhook' to the real n8n host via Vite server proxy.
-// To support that without changing the .env, when running in DEV extract the
-// pathname from the configured URL so the frontend calls a relative path
+// Extract the pathname from the configured URL so the frontend calls a relative path
 // (e.g. '/webhook/script-forge') which Vite will proxy.
 function toDevPath(raw: string) {
     try {
@@ -17,9 +16,14 @@ function toDevPath(raw: string) {
     }
 }
 
-// In production, use Vercel serverless functions (/api/submit, /api/help) to avoid CORS.
-// In development, use the Vite proxy for the relative webhook paths.
-const API_BASE_URL = import.meta.env.DEV ? toDevPath(rawApiBase) : '/api';
+// Submit endpoint behavior:
+// - In DEV: use the exact webhook path (e.g. '/webhook/script-forge') so Vite proxies to n8n
+// - In PROD: POST to the serverless proxy at '/api/submit' which forwards to n8n (avoids CORS)
+const SUBMIT_ENDPOINT = import.meta.env.DEV ? toDevPath(rawApiBase) : '/api/submit';
+
+// Server-side API base used for status/script retrieval (serverless functions)
+const SERVER_API_BASE = '/api';
+
 const HELP_WEBHOOK_URL = import.meta.env.DEV ? toDevPath(rawHelpWebhook) : '/api/help';
 
 // --- Client Token ---
@@ -47,14 +51,12 @@ async function handleResponse<T>(response: Response): Promise<T> {
 }
 
 export async function submitJob(payload: Omit<SubmitJobPayload, 'client_token'>): Promise<SubmitJobResponse> {
-    if (!API_BASE_URL) {
-        throw new Error("API URL is not configured. Please check your environment variables.");
+    if (!SUBMIT_ENDPOINT) {
+        throw new Error("API submit endpoint is not configured. Please check your environment variables.");
     }
     const client_token = getClientToken();
-    // In production: POST to /api/submit (serverless proxy)
-    // In development: POST to /webhook/script-forge/submit (Vite proxy)
-    const endpoint = import.meta.env.DEV ? `${API_BASE_URL}/submit` : `${API_BASE_URL}/submit`;
-    const response = await fetch(endpoint, {
+    // POST directly to the configured webhook path in DEV, or the serverless proxy in PROD
+    const response = await fetch(SUBMIT_ENDPOINT, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...payload, client_token }),
@@ -63,18 +65,12 @@ export async function submitJob(payload: Omit<SubmitJobPayload, 'client_token'>)
 }
 
 export async function getJobStatus(jobId: string): Promise<JobStatusResponse> {
-    if (!API_BASE_URL) {
-        throw new Error("API URL is not configured. Please check your environment variables.");
-    }
-    const response = await fetch(`${API_BASE_URL}/status/${jobId}`);
+    const response = await fetch(`${SERVER_API_BASE}/status/${jobId}`);
     return handleResponse<JobStatusResponse>(response);
 }
 
 export async function getScript(scriptId: string): Promise<Script> {
-    if (!API_BASE_URL) {
-        throw new Error("API URL is not configured. Please check your environment variables.");
-    }
-    const response = await fetch(`${API_BASE_URL}/script/${scriptId}`);
+    const response = await fetch(`${SERVER_API_BASE}/script/${scriptId}`);
     return handleResponse<Script>(response);
 }
 

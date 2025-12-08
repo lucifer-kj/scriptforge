@@ -107,7 +107,7 @@ export const ResultsPage = ({ jobId }: { jobId: string }) => {
                     const s = await getScript(res.script_id);
                     if (!mounted) return;
                     setScript(s);
-                    if (interval) clearInterval(interval);
+                    if (intervalId) clearInterval(intervalId);
                 }
             } catch (err) {
                 setError(err instanceof Error ? err.message : 'Failed to fetch status');
@@ -116,9 +116,10 @@ export const ResultsPage = ({ jobId }: { jobId: string }) => {
 
         // initial poll then interval
         poll();
-        const intervalId = window.setInterval(poll, 3000);
+        let intervalId: number | undefined = undefined;
+        intervalId = window.setInterval(poll, 3000);
 
-        return () => { mounted = false; clearInterval(intervalId); };
+        return () => { mounted = false; if (intervalId) clearInterval(intervalId); };
     }, [jobId]);
 
     return (
