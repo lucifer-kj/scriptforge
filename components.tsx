@@ -226,7 +226,7 @@ export const MobileBottomNav = ({ activePage, setPage }: { activePage: Page, set
 // --- Page Components ---
 const FormLabel = ({ children, htmlFor }: { children: React.ReactNode, htmlFor?: string }) => <label htmlFor={htmlFor} className="block text-sm font-medium text-[var(--text-60)] mb-2">{children}</label>;
 
-export const HomePage = ({ addSubmission, addNotification, navigateToResults }: { addSubmission: (s: Submission) => void, addNotification: (msg: string, type: 'success' | 'error') => void, navigateToResults?: (jobId: string) => void }) => {
+export const HomePage = ({ addSubmission, addNotification, navigateToResults }: { addSubmission: (s: Submission) => void, addNotification: (msg: string, type: 'success' | 'error' | 'info') => void, navigateToResults?: (jobId: string) => void }) => {
     const [sourceUrl, setSourceUrl] = useState('');
     const [sourceType, setSourceType] = useState<SourceType>('auto');
     const [category, setCategory] = useState('');
@@ -393,7 +393,7 @@ export const AboutPage = () => (
         </div>
     </div>
 );
-export const HelpPage = ({ addNotification }: { addNotification: (msg: string, type: 'success' | 'error') => void }) => {
+export const HelpPage = ({ addNotification }: { addNotification: (msg: string, type: 'success' | 'error' | 'info') => void }) => {
     const [name, setName] = useState('');
     const [email, setEmail] = useState('');
     const [message, setMessage] = useState('');
@@ -447,7 +447,7 @@ const Scene = ({ scene }: { scene: SceneType }) => {
         </div>
     );
 };
-export const ScriptViewerScreen = ({ scriptId, onBack, addNotification }: { scriptId: string, onBack: () => void, addNotification: (msg: string, type: 'success' | 'error') => void }) => {
+export const ScriptViewerScreen = ({ scriptId, onBack, addNotification }: { scriptId: string, onBack: () => void, addNotification: (msg: string, type: 'success' | 'error' | 'info') => void }) => {
     const [script, setScript] = useState<Script | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
