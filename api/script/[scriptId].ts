@@ -64,11 +64,31 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     }
 
-    // Ensure scenes is an array of { scene, text }
+    // Parse AI output stored in `scenes` (expected JSON with keys: hook, intro, main_content, conclusion, cta)
+    let aiOutput: any = null;
+    if (Array.isArray(scriptRow.scenes)) {
+      // older format: array of scenes — keep as fallback
+      aiOutput = null;
+    } else if (typeof scriptRow.scenes === 'string' && scriptRow.scenes.length) {
+      try { aiOutput = JSON.parse(scriptRow.scenes); } catch (e) { aiOutput = null; }
+    } else if (typeof scriptRow.scenes === 'object' && scriptRow.scenes !== null) {
+      aiOutput = scriptRow.scenes;
+    }
+
+    // Build frontend `scenes` array from AI output if available, otherwise try to use stored array
     let scenes: any[] = [];
-    if (Array.isArray(scriptRow.scenes)) scenes = scriptRow.scenes;
-    else if (typeof scriptRow.scenes === 'string' && scriptRow.scenes.length) {
-      try { scenes = JSON.parse(scriptRow.scenes); } catch (e) { scenes = []; }
+    if (aiOutput && typeof aiOutput === 'object') {
+      const order = ['hook', 'intro', 'main_content', 'conclusion', 'cta'];
+      let idx = 1;
+      for (const key of order) {
+        const text = aiOutput[key];
+        if (typeof text === 'string' && text.trim().length > 0) {
+          scenes.push({ scene: idx++, text: text.trim() });
+        }
+      }
+    } else if (Array.isArray(scriptRow.scenes)) {
+      // ensure items have {scene, text}
+      scenes = scriptRow.scenes.map((s: any, i: number) => ({ scene: s.scene ?? i + 1, text: s.text ?? String(s) }));
     }
 
     // Ensure title_suggestions exists - derive from description if missing
@@ -83,6 +103,25 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       title_suggestions = ['Suggested Title'];
     }
 
+    // Build full_text from AI output when available
+    let full_text = '';
+    if (aiOutput && typeof aiOutput === 'object') {
+      const parts = ['hook', 'intro', 'main_content', 'conclusion', 'cta'];
+      const pieces: string[] = [];
+      for (const p of parts) {
+        if (typeof aiOutput[p] === 'string' && aiOutput[p].trim().length > 0) pieces.push(aiOutput[p].trim());
+      }
+      full_text = pieces.join('\n\n');
+    } else {
+      full_text = scriptRow.full_text || scriptRow.fulltext || '';
+    }
+
+    // If no title suggestions, derive a simple one from the first available piece
+    if ((!title_suggestions || title_suggestions.length === 0) && full_text) {
+      const first = full_text.split('\n').find((l: string) => l.trim().length > 10) || full_text.slice(0, 120);
+      title_suggestions = [first.trim().slice(0, 120)];
+    }
+
     const transformed = {
       id: scriptRow.id,
       submission_id: scriptRow.submission_id || null,
@@ -90,7 +129,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       description: scriptRow.description || '',
       tags,
       scenes,
-      full_text: scriptRow.full_text || scriptRow.fulltext || '',
+      full_text,
       generation_time_ms: scriptRow.generation_time_ms || scriptRow.generation_time || 0,
       source_link: scriptRow.source_link || null,
     };
