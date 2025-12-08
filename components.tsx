@@ -243,14 +243,68 @@ export const HomePage = ({ addSubmission, addNotification, navigateToResults }: 
         if (!sourceUrl || urlError) { addNotification('Please enter a valid source URL.', 'error'); return; }
         setIsSubmitting(true);
         try {
+            // Submit the job - n8n now returns immediately with { status: 'processing', job_id }
             const response = await submitJob({ source_url: sourceUrl, source_type: sourceType, category, requirements, output_type: outputType, tone });
+
+            // Add a local submission entry (processing)
             addSubmission({ id: response.job_id, created_at: new Date().toISOString(), status: response.status, source_url: sourceUrl, output_type: outputType, source_type: sourceType, category, requirements, tone });
             addNotification(`Job Created - Processing...`, 'success');
             setSourceUrl(''); setCategory(''); setRequirements('');
-            // Navigate to results page if navigation callback provided
-            if (navigateToResults) navigateToResults(response.job_id);
+
+            // Poll the server-side status endpoint (which reads Supabase) until the job is done
+            const pollIntervalMs = 3000;
+            const maxPollTimeMs = 1000 * 60 * 5; // 5 minutes timeout
+            const start = Date.now();
+            let mounted = true;
+
+            const checkOnce = async () => {
+                try {
+                    const statusResp = await getJobStatus(response.job_id);
+                    if (!mounted) return { done: false };
+                    if (statusResp.status === 'done' && statusResp.script_id) {
+                        return { done: true, script_id: statusResp.script_id };
+                    }
+                    return { done: false };
+                } catch (err) {
+                    // If job isn't found yet (404) or transient error, just continue polling until timeout
+                    return { done: false };
+                }
+            };
+
+            // immediate first check then interval
+            let finished = false;
+            const first = await checkOnce();
+            if (first.done) {
+                finished = true;
+                if (navigateToResults) navigateToResults(response.job_id);
+            }
+
+            let intervalId: number | undefined = undefined;
+            if (!finished) {
+                intervalId = window.setInterval(async () => {
+                    if (Date.now() - start > maxPollTimeMs) {
+                        // timeout
+                        if (intervalId) clearInterval(intervalId);
+                        setIsSubmitting(false);
+                        addNotification('Script generation is taking longer than expected. You can check the results page later.', 'info');
+                        mounted = false;
+                        return;
+                    }
+                    const r = await checkOnce();
+                    if (r.done) {
+                        if (intervalId) clearInterval(intervalId);
+                        if (navigateToResults) navigateToResults(response.job_id);
+                        setIsSubmitting(false);
+                        mounted = false;
+                    }
+                }, pollIntervalMs);
+            } else {
+                setIsSubmitting(false);
+            }
+
         } catch (error) { addNotification(error instanceof Error ? error.message : 'An unknown error occurred.', 'error');
-        } finally { setIsSubmitting(false); }
+            setIsSubmitting(false);
+        }
     };
 
     return (
@@ -267,7 +321,7 @@ export const HomePage = ({ addSubmission, addNotification, navigateToResults }: 
                         <div><FormLabel>Output Type</FormLabel><SegmentedControl options={[{ label: 'Long-form', value: 'long' }, { label: 'Short-form', value: 'short' }]} value={outputType} onChange={(v) => setOutputType(v as OutputType)} /></div>
                         <div><FormLabel htmlFor="tone">Tone</FormLabel><Select id="tone" value={tone} onChange={e => setTone(e.target.value as Tone)}>{(['neutral', 'friendly', 'energetic'] as Tone[]).map(t => <option key={t} value={t} className="capitalize bg-[var(--card)]">{t}</option>)}</Select></div>
                     </div>
-                    <div className="pt-2"><ButtonPrimary type="submit" disabled={isSubmitting} className="w-full">{isSubmitting ? 'Submitting...' : 'Generate Script'}</ButtonPrimary></div>
+                    <div className="pt-2"><ButtonPrimary type="submit" disabled={isSubmitting} className="w-full">{isSubmitting ? 'Generating...' : 'Generate Script'}</ButtonPrimary></div>
                 </form>
             </div>
         </div>

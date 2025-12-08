@@ -1,70 +1,40 @@
--- Supabase Schema for ScriptForge
--- This schema is based on the Product Requirements Document (PRD).
+Here is the exact SQL schema for my Supabase database. Please use this structure for all future code generation and ignore any previous assumptions.
 
--- 1. Submissions Table
--- This table stores the initial job requests submitted by the user from the frontend.
+-- Table 1: Submissions
+-- This tracks the user request and job status.
+-- This is updated by the 'Update Job' node in n8n.
 create table public.submissions (
-  id uuid primary key default gen_random_uuid(),
-  created_at timestamptz not null default now(),
-  source_url text not null,
-  source_type text not null check (source_type in ('youtube', 'website', 'rss')),
+  id uuid default gen_random_uuid() primary key,
+  created_at timestamp with time zone default now(),
+  
+  -- The input parameters from the form
+  client_token text, -- specific to the n8n flow logic
   category text,
+  tone text,
+  output_type text,
   requirements text,
-  output_type text not null check (output_type in ('short', 'long')),
-  tone text not null check (tone in ('neutral', 'friendly', 'energetic')),
-  status text not null check (status in ('queued', 'processing', 'done', 'failed')),
-  job_id uuid not null unique,
-  extractor text,
-  extractor_meta jsonb,
-  retry_count int not null default 0
+  source_url text,
+  
+  -- Status tracking for the polling logic
+  status text default 'pending', -- values: 'pending', 'processing', 'done', 'failed'
+  
+  -- Link to the generated script (nullable until job is done)
+  script_id uuid references public.scripts(id)
 );
 
--- Add comments for clarity
-comment on table public.submissions is 'Stores user script generation requests and their status.';
-comment on column public.submissions.job_id is 'The unique ID of the job in the processing queue (e.g., n8n execution ID).';
-comment on column public.submissions.source_type is 'The type of the source URL, resolved by the backend.';
-comment on column public.submissions.status is 'The current status of the script generation job.';
-
-
--- 2. Scripts Table
--- This table stores the final generated script content once a job is successfully completed.
+-- Table 2: Scripts
+-- This stores the AI-generated content.
+-- This is populated by the 'Add Scripts' node in n8n.
 create table public.scripts (
-  id uuid primary key default gen_random_uuid(),
-  submission_id uuid not null references public.submissions(id) on delete cascade,
-  created_at timestamptz not null default now(),
-  title_suggestions jsonb,
-  chosen_title text,
-  description text,
-  tags text[],
-  scenes jsonb,
-  full_text text,
-  token_count int,
-  generation_time_ms int
+  id uuid default gen_random_uuid() primary key,
+  created_at timestamp with time zone default now(),
+  
+  -- Fields mapped in n8n 'Add Scripts' node:
+  description text,         -- Stores the 'intro' or summary
+  scenes jsonb,            -- Stores the full structured JSON object (hook, intro, main_content, etc.)
+  full_text text,          -- The complete concatenated script
+  generation_time_ms int,  -- Execution time tracking
+  
+  -- Foreign key to link back to the submission
+  submission_id uuid references public.submissions(id)
 );
-
--- Add comments for clarity
-comment on table public.scripts is 'Stores the generated script content from successful jobs.';
-comment on column public.scripts.submission_id is 'A foreign key linking the script back to the original submission request.';
-comment on column public.scripts.scenes is 'A JSON array of scene objects, e.g., [{"scene": 1, "text": "..."}, ...].';
-comment on column public.scripts.tags is 'An array of SEO tags.';
-
-
--- 3. Rate Limits Table
--- This table tracks submissions per client token to allow the backend to enforce rate limits.
-create table public.rate_limits (
-  client_token text primary key,
-  window_start timestamptz not null,
-  submissions_count int not null
-);
-
--- Add comments for clarity
-comment on table public.rate_limits is 'Tracks API usage per client token for rate limiting purposes.';
-
-
--- 4. Row Level Security (RLS)
--- Enable RLS for all tables as a security best practice.
--- The backend (n8n) should use the service_role key to bypass RLS policies.
--- No policies are defined here, meaning all access is denied by default unless using the service_role key.
-alter table public.submissions enable row level security;
-alter table public.scripts enable row level security;
-alter table public.rate_limits enable row level security;
