@@ -95,39 +95,105 @@ export const ResultsPage = ({ jobId }: { jobId: string }) => {
     const [status, setStatus] = useState<string>('queued');
     const [script, setScript] = useState<Script | null>(null);
     const [error, setError] = useState<string | null>(null);
+    const errorCountRef = useRef(0);
+    const startTimeRef = useRef<number>(Date.now());
+    const MAX_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes hard timeout
+    const [waitingForRow, setWaitingForRow] = useState(false);
+    const [pollKey, setPollKey] = useState(0);
+    const [timedOut, setTimedOut] = useState(false);
+    const [tick, setTick] = useState(0); // used to update phased messages
+
+    // Exponential backoff parameters
+    const POLL_INITIAL_MS = 3000;
+    const POLL_MAX_MS = 30_000;
+    const POLL_FACTOR = 1.8;
+    const MAX_TRANSIENT_ERRORS = 4;
 
     useEffect(() => {
         let mounted = true;
-        const poll = async () => {
-            try {
-                const res = await getJobStatus(jobId);
-                if (!mounted) return;
-                setStatus(res.status);
-                if (res.status === 'done' && res.script_id) {
-                    const s = await getScript(res.script_id);
+        let delay = POLL_INITIAL_MS;
+        let cancelled = false;
+
+        const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+        const loop = async () => {
+            while (!cancelled && mounted) {
+                // Hard timeout check
+                if (Date.now() - startTimeRef.current > MAX_TIMEOUT_MS) {
+                    console.warn('Polling timed out for job', jobId);
                     if (!mounted) return;
-                    setScript(s);
-                    if (intervalId) clearInterval(intervalId);
+                    setTimedOut(true);
+                    setError('Request Timed Out - Please check History');
+                    return;
                 }
-            } catch (err) {
-                setError(err instanceof Error ? err.message : 'Failed to fetch status');
+
+                try {
+                    const res = await getJobStatus(jobId);
+                    if (!mounted) return;
+                    setStatus(res.status);
+                    // successful fetch -> clear transient error state
+                    errorCountRef.current = 0;
+                    setWaitingForRow(false);
+                    if (error) setError(null);
+                    if (res.status === 'done' && res.script_id) {
+                        const s = await getScript(res.script_id);
+                        if (!mounted) return;
+                        setScript(s);
+                        return; // finished
+                    }
+
+                    // reset delay on success
+                    delay = POLL_INITIAL_MS;
+                    } catch (err) {
+                    errorCountRef.current += 1;
+                    console.warn('Error fetching job status for', jobId, err);
+                    // if first transient error, show waiting state so users know we're still trying
+                    if (errorCountRef.current === 1) setWaitingForRow(true);
+                    if (errorCountRef.current >= MAX_TRANSIENT_ERRORS) {
+                        setError(err instanceof Error ? err.message : 'Failed to fetch status');
+                    }
+                    // increase delay with backoff
+                    delay = Math.min(POLL_MAX_MS, Math.ceil(delay * POLL_FACTOR));
+                }
+
+                // wait before next attempt
+                await sleep(delay);
             }
         };
 
-        // initial poll then interval
-        poll();
-        let intervalId: number | undefined = undefined;
-        intervalId = window.setInterval(poll, 3000);
+        // reset timedOut and startTime when pollKey changes (i.e. retry)
+        setTimedOut(false);
+        startTimeRef.current = Date.now();
+        errorCountRef.current = 0;
+        setWaitingForRow(false);
+        loop();
 
-        return () => { mounted = false; if (intervalId) clearInterval(intervalId); };
-    }, [jobId]);
+        return () => { mounted = false; cancelled = true; };
+    }, [jobId, pollKey]);
+
+    // tick updater for phased messages
+    useEffect(() => {
+        if (script || error) return undefined;
+        const id = window.setInterval(() => setTick(t => t + 1), 1000);
+        return () => clearInterval(id);
+    }, [script, error]);
+
+    const retryPolling = () => {
+        // restart the polling loop
+        setError(null);
+        setTimedOut(false);
+        errorCountRef.current = 0;
+        setWaitingForRow(false);
+        startTimeRef.current = Date.now();
+        setPollKey(k => k + 1);
+    };
 
     return (
         <div className="p-4 md:p-8 max-w-4xl mx-auto">
             <div className="bg-[var(--card)] p-[var(--space-5)] rounded-[var(--radius-md)] shadow-[var(--shadow-md)] border border-[var(--muted)]">
                 <h2 className="text-xl font-bold mb-2">Results for job {jobId}</h2>
                 <p className="text-[var(--text-60)] mb-4">Status: <strong className="capitalize">{status}</strong></p>
-                {error && <p className="text-[var(--danger)]">{error}</p>}
+                {error && <p className="text-[var(--danger)]">{error} {timedOut && <ButtonSecondary onClick={retryPolling} className="ml-3 !py-1">Retry Polling</ButtonSecondary>}</p>}
                 {script ? (
                     <div>
                         <h3 className="text-lg font-semibold">{script.title_suggestions[0]}</h3>
@@ -140,7 +206,22 @@ export const ResultsPage = ({ jobId }: { jobId: string }) => {
                         ))}</div>
                     </div>
                 ) : (
-                    <div className="text-[var(--text-60)]">{status === 'done' ? 'Fetching script...' : 'Processing... Please wait.'}</div>
+                    <div className="text-[var(--text-60)]">
+                        {status === 'done' ? 'Fetching script...' : (
+                            // If we're in the transient 'waiting' state show a friendly initializing message
+                            waitingForRow ? 'Initializing...' : (
+                                // phased messages based on time elapsed since polling started
+                                (() => {
+                                    // include `tick` so we re-evaluate this branch periodically
+                                    void tick;
+                                    const elapsed = Date.now() - startTimeRef.current;
+                                    if (elapsed < 10_000) return 'Analyzing source content...';
+                                    if (elapsed < 30_000) return 'Drafting your script...';
+                                    return 'Finalizing and polishing...';
+                                })()
+                            )
+                        )}
+                    </div>
                 )}
             </div>
         </div>
@@ -160,14 +241,16 @@ export const NotificationHandler = ({ notifications, onDismiss }: { notification
     </div>
 );
 const StatusPill = ({ status }: { status: Submission['status'] }) => {
-    const styles = {
+    // Visual styles per status, processing uses amber (yellow) with a subtle pulse
+    const styles: Record<string, { bg: string; text: string; icon: React.ReactNode } > = {
         queued: { bg: 'bg-amber-500/10', text: 'text-amber-400', icon: <SpinnerIcon /> },
-        processing: { bg: 'bg-blue-500/10', text: 'text-blue-400', icon: <SpinnerIcon /> },
+        processing: { bg: 'bg-amber-500/10', text: 'text-amber-400', icon: <SpinnerIcon /> },
         done: { bg: 'bg-green-500/10', text: 'text-green-400', icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" /></svg> },
         failed: { bg: 'bg-red-500/10', text: 'text-red-400', icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" /></svg> }
     };
-    const currentStyle = styles[status];
-    return <div className={`flex items-center space-x-2 px-2.5 py-1 text-xs font-semibold rounded-full ${currentStyle.bg} ${currentStyle.text}`}>{currentStyle.icon} <span className="capitalize">{status}</span></div>;
+    const currentStyle = styles[status] || styles.queued;
+    const extra = status === 'processing' ? 'animate-pulse' : '';
+    return <div className={`flex items-center space-x-2 px-2.5 py-1 text-xs font-semibold rounded-full ${currentStyle.bg} ${currentStyle.text} ${extra}`}><span className="inline-flex items-center">{currentStyle.icon}</span> <span className="capitalize">{status}</span></div>;
 };
 export const Footer = () => <footer className="text-center py-6 text-sm text-[var(--text-60)]">Powered by Alpha Business Digital</footer>;
 
@@ -252,7 +335,6 @@ export const HomePage = ({ addSubmission, addNotification, navigateToResults }: 
             setSourceUrl(''); setCategory(''); setRequirements('');
 
             // Poll the server-side status endpoint (which reads Supabase) until the job is done
-            const pollIntervalMs = 3000;
             const maxPollTimeMs = 1000 * 60 * 5; // 5 minutes timeout
             const start = Date.now();
             let mounted = true;
@@ -271,36 +353,44 @@ export const HomePage = ({ addSubmission, addNotification, navigateToResults }: 
                 }
             };
 
-            // immediate first check then interval
-            let finished = false;
-            const first = await checkOnce();
-            if (first.done) {
-                finished = true;
-                if (navigateToResults) navigateToResults(response.job_id);
-            }
+            // Exponential backoff polling loop
+            let delay = 3000;
+            const MAX_DELAY = 30_000;
+            const FACTOR = 1.8;
+            let cancelled = false;
+            const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-            let intervalId: number | undefined = undefined;
-            if (!finished) {
-                intervalId = window.setInterval(async () => {
-                    if (Date.now() - start > maxPollTimeMs) {
-                        // timeout
-                        if (intervalId) clearInterval(intervalId);
-                        setIsSubmitting(false);
-                        addNotification('Script generation is taking longer than expected. You can check the results page later.', 'info');
-                        mounted = false;
-                        return;
-                    }
+            const loop = async () => {
+                // immediate first check
+                const first = await checkOnce();
+                if (first.done) {
+                    if (navigateToResults) navigateToResults(response.job_id);
+                    setIsSubmitting(false);
+                    return;
+                }
+
+                while (!cancelled && Date.now() - start <= maxPollTimeMs) {
+                    await sleep(delay);
                     const r = await checkOnce();
                     if (r.done) {
-                        if (intervalId) clearInterval(intervalId);
                         if (navigateToResults) navigateToResults(response.job_id);
                         setIsSubmitting(false);
-                        mounted = false;
+                        return;
                     }
-                }, pollIntervalMs);
-            } else {
-                setIsSubmitting(false);
-            }
+                    // backoff
+                    delay = Math.min(MAX_DELAY, Math.ceil(delay * FACTOR));
+                }
+
+                // timeout
+                if (!cancelled) {
+                    setIsSubmitting(false);
+                    addNotification('Script generation is taking longer than expected. You can check the results page later.', 'info');
+                }
+            };
+
+            loop();
+            // ensure we stop if component unmounts: set mounted=false by closing over mounted/cancelled
+            
 
         } catch (error) { addNotification(error instanceof Error ? error.message : 'An unknown error occurred.', 'error');
             setIsSubmitting(false);
@@ -330,17 +420,37 @@ export const HomePage = ({ addSubmission, addNotification, navigateToResults }: 
 
 const HistoryItem = ({ submission, onUpdate, onSelect }: { submission: Submission, onUpdate: (submission: Submission) => void, onSelect: (scriptId: string) => void }) => {
     useEffect(() => {
-        let intervalId: number | undefined;
-        const pollStatus = async () => {
-            try {
-                const data = await getJobStatus(submission.id);
-                if (data.status !== submission.status || data.script_id !== submission.script_id) {
-                    onUpdate({ ...submission, status: data.status, script_id: data.script_id });
+        let cancelled = false;
+        const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+        let delay = 3000;
+        const MAX_DELAY = 30_000;
+        const FACTOR = 1.8;
+
+        const loop = async () => {
+            // only poll while submission is queued/processing
+            while (!cancelled && (submission.status === 'queued' || submission.status === 'processing')) {
+                try {
+                    const data = await getJobStatus(submission.id);
+                    if (data.status !== submission.status || data.script_id !== submission.script_id) {
+                        onUpdate({ ...submission, status: data.status, script_id: data.script_id });
+                    }
+                    // success -> reset delay
+                    delay = 3000;
+                } catch (error) {
+                    // Transient errors expected while the workflow runs. Log and backoff.
+                    console.warn('Transient error while polling job status for', submission.id, error);
+                    delay = Math.min(MAX_DELAY, Math.ceil(delay * FACTOR));
                 }
-            } catch (error) { onUpdate({ ...submission, status: 'failed' }); }
+
+                await sleep(delay);
+            }
         };
-        if (submission.status === 'queued' || submission.status === 'processing') { intervalId = window.setInterval(pollStatus, 3000); }
-        return () => { if (intervalId) clearInterval(intervalId); };
+
+        if (submission.status === 'queued' || submission.status === 'processing') {
+            loop();
+        }
+
+        return () => { cancelled = true; };
     }, [submission, onUpdate]);
 
     const canView = submission.status === 'done' && submission.script_id;

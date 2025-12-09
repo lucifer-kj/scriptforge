@@ -1,4 +1,5 @@
 import { VercelRequest, VercelResponse } from '@vercel/node';
+import { createClient } from '@supabase/supabase-js';
 
 /**
  * Vercel Edge Function / Serverless Function
@@ -35,52 +36,68 @@ export default async function handler(
   }
 
   try {
+    // Require server-side Supabase credentials to create the submission row
+    const SUPABASE_URL = process.env.SUPABASE_URL;
+    const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+      res.status(500).json({ error: 'Supabase not configured on the server' });
+      return;
+    }
+
+    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+
+    // Insert a new submission row BEFORE calling the webhook so n8n can update it
+    const insertPayload: any = {
+      status: 'pending',
+      source_url: body.source_url || null,
+      source_type: body.source_type || null,
+      category: body.category || null,
+      requirements: body.requirements || null,
+      output_type: body.output_type || null,
+      tone: body.tone || null,
+      client_token: body.client_token || null,
+    };
+
+    const { data: inserted, error: insertError } = await supabase
+      .from('submissions')
+      .insert(insertPayload)
+      .select('id, status, script_id')
+      .single();
+
+    if (insertError) {
+      console.error('Failed to insert submission row:', insertError);
+      res.status(500).json({ error: 'Failed to create submission' });
+      return;
+    }
+
+    const submissionId = inserted.id;
+
+    // Call the upstream n8n webhook and include the submission id in the payload.
+    // Do not wait for n8n to finish — return immediately so the serverless function stays short.
     const n8nWebhookUrl = process.env.VITE_API_BASE_URL;
     if (!n8nWebhookUrl) {
       res.status(500).json({ error: 'n8n webhook URL not configured' });
       return;
     }
 
-    const upstreamResponse = await fetch(n8nWebhookUrl, {
+    // Fire-and-forget the webhook call. Attach a catch to avoid unhandled rejections.
+    fetch(n8nWebhookUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Accept: 'application/json, text/*',
       },
-      body: JSON.stringify(body),
-    });
-
-    // If upstream returned non-OK status, still examine content-type
-    const contentType = upstreamResponse.headers.get('content-type') || '';
-    const isJson = contentType.toLowerCase().includes('application/json');
-
-    if (!isJson) {
-      // read raw text for debugging, but do not forward HTML to client
-      const raw = await upstreamResponse.text().catch(() => '<unreadable response>');
-      console.error('Upstream non-JSON response:', {
-        url: n8nWebhookUrl,
-        status: upstreamResponse.status,
-        contentType,
-        bodyPreview: raw.slice ? raw.slice(0, 2000) : String(raw),
-      });
-
-      res.status(502).json({ error: 'Upstream service error', details: 'Non-JSON response received' });
-      return;
-    }
-
-    // Parse and forward JSON response
-    const data = await upstreamResponse.json().catch((err) => {
-      console.error('Failed to parse upstream JSON:', err);
+      body: JSON.stringify({ ...body, submission_id: submissionId }),
+    }).then((resp) => {
+      if (!resp.ok) console.warn('n8n webhook returned non-OK:', resp.status);
       return null;
+    }).catch((err) => {
+      console.error('n8n webhook call failed (fire-and-forget):', err);
     });
 
-    if (data === null) {
-      res.status(502).json({ error: 'Upstream service error', details: 'Invalid JSON received' });
-      return;
-    }
-
-    // Forward status and parsed body
-    res.status(upstreamResponse.status).json(data);
+    // Immediately return the created job id. Frontend will poll `/api/status/:jobId`.
+    res.status(200).json({ job_id: submissionId, status: 'pending' });
   } catch (err) {
     console.error('Proxy error:', err);
     res.status(502).json({ error: 'Upstream service error', details: err instanceof Error ? err.message : 'Unknown error' });
