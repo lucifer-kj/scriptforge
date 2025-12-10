@@ -62,13 +62,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
     const submissionId = (inserted as any).id;
 
     // Determine webhook URL from common environment variable names
+    // CRITICAL: Only server-side env vars (no VITE_ prefix) are available in Vercel backend
     const n8nWebhookUrl =
-      process.env.N8N_WEBHOOK_URL || process.env.API_BASE_URL || process.env.VITE_API_BASE_URL || process.env.NEXT_PUBLIC_API_BASE_URL || '';
+      process.env.N8N_WEBHOOK_URL || process.env.API_BASE_URL || process.env.NEXT_PUBLIC_API_BASE_URL || '';
 
     if (!n8nWebhookUrl) {
-      console.error('n8n webhook URL not configured. Check N8N_WEBHOOK_URL, API_BASE_URL, or VITE_API_BASE_URL');
-      // We still return the created job id so the client can poll the status row.
-      res.status(200).json({ job_id: submissionId, status: 'processing' });
+      console.error('CRITICAL ERROR: n8n webhook URL not configured on the server');
+      console.error('Expected environment variable: N8N_WEBHOOK_URL');
+      console.error('Fallback checked: API_BASE_URL, NEXT_PUBLIC_API_BASE_URL');
+      console.error('Note: VITE_* variables are client-side only and cannot be accessed by serverless functions');
+      console.error('Action: Add N8N_WEBHOOK_URL to Vercel Project Settings → Environment Variables');
+      
+      // Still return the created job id so the client can poll the status row
+      // but this is a partial failure - the workflow won't run without the webhook
+      res.status(200).json({ 
+        job_id: submissionId, 
+        status: 'processing',
+        warning: 'n8n webhook not configured - workflow will not execute'
+      });
       return;
     }
 
@@ -79,11 +90,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
       body: JSON.stringify({ ...body, submission_id: submissionId }),
     })
       .then((resp) => {
-        if (!resp.ok) console.warn('n8n webhook returned non-OK:', resp.status);
+        if (!resp.ok) {
+          console.warn(`n8n webhook returned non-OK status: ${resp.status} for URL: ${n8nWebhookUrl}`);
+        } else {
+          console.log(`n8n webhook call succeeded for submission: ${submissionId}`);
+        }
         return null;
       })
       .catch((err) => {
-        console.error('n8n webhook call failed (fire-and-forget):', err);
+        console.error(`n8n webhook call failed for URL ${n8nWebhookUrl}:`, err instanceof Error ? err.message : err);
+        console.error(`Submission ${submissionId} was created in database but workflow may not execute`);
       });
 
     // Return created job id to client
